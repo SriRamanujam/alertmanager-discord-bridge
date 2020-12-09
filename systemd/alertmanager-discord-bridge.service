@@ -1,0 +1,12 @@
+[Unit]
+Description=Alertmanager to Discord bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/alertmanager-discord-bridge
+ExecStart=/usr/local/bin/alertmanager-discord-bridge
+
+[Install]
+WantedBy=multi-user.target
