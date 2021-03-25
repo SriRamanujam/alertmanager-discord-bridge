@@ -213,6 +213,7 @@ async fn main() -> std::io::Result<()> {
                 }
             })
             .service(web::resource("/").route(web::post().to(index)))
+            .service(web::resource("/readyz").route(web::get().to(|| async { "ready" })))
     })
     .bind(listen_addr)?
     .run()
