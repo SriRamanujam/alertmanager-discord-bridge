@@ -163,6 +163,13 @@ async fn index(
             embeds,
         };
 
+        if discord.embeds.len() < 1 {
+            log::debug!(
+                "No alerts to send, skipping!"
+            );
+            return Ok(HttpResponse::Ok().finish());
+        }
+
         log::debug!(
             "Sending discord payload to webhook: {:?}",
             serde_json::to_string(&discord)
