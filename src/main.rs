@@ -141,7 +141,7 @@ async fn index(
                             "You should take a look at these, like, right now.".to_string()
                         }
                         "warning" => "These are probably issues.".to_string(),
-                        "none" => {
+                        "info" => {
                             "These are not bad, but maybe you should take a look?".to_string()
                         }
                         _ => "Unknown severity. Take a look at these".to_string(),
@@ -149,7 +149,7 @@ async fn index(
                     color: match severity {
                         "critical" => COLOR_RED,
                         "warning" => COLOR_YELLOW,
-                        "none" => COLOR_BLUE,
+                        "info" => COLOR_BLUE,
                         _ => COLOR_GRAY,
                     },
                     fields,
