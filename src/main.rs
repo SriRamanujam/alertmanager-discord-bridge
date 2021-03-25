@@ -62,6 +62,11 @@ struct DiscordEmbedField {
     value: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ReadyzQueryParams {
+    verbose: Option<String>
+}
+
 async fn index(
     item: Json<AlertManager>,
     webhook: web::Data<String>,
@@ -196,6 +201,63 @@ async fn index(
     Ok(HttpResponse::Ok().finish())
 }
 
+/// Tests all necessary upstream components to make sure that the service is ready to accept messages.
+async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>) -> Result<HttpResponse, Error> {
+    let mut component_statuses = HashMap::new();
+
+    // test connectivity to Discord.
+    let discord_success = {
+        let test_req = reqwest::get(webhook.get_ref()).await;
+
+        // set the value of discord_success based on the response code of the call to Discord.
+        match test_req {
+            Ok(res) => {
+                if res.status() == reqwest::StatusCode::OK {
+                    true
+                } else {
+                    match res.text().await {
+                        Ok(s) => log::warn!("Error talking to Discord: {}", s),
+                        Err(_) => log::warn!("Error talking to Discord")
+                    };
+                    false
+                }
+            },
+            Err(e) => {
+                log::warn!("Discord not reachable: {}", e);
+                false
+            },
+        }
+    };
+    component_statuses.insert("Discord", discord_success);
+
+    // generate response. If "?verbose" is passed as a query parameter, generate a verbose string.
+    if query.0.verbose.is_some() {
+        // generate verbose response and respond with 200 or 503
+        let mut res_string = String::new();
+
+        let overall_success = component_statuses.iter().fold(true, |success, (component, up)| {
+            let s = if *up { "[+]" } else { "[-]" };
+            res_string.push_str(&format!("{} {}\n", s, component));
+            success & *up
+        });
+
+        if overall_success {
+            Ok(HttpResponse::Ok().body(res_string))
+        } else {
+            Ok(HttpResponse::ServiceUnavailable().body(res_string))
+        }
+    } else {
+        // generate 204 or 503
+        let overall_success = component_statuses.values().fold(true, |success, up| success & *up);
+
+        if overall_success {
+            Ok(HttpResponse::NoContent().finish())
+        } else {
+            Ok(HttpResponse::ServiceUnavailable().finish())
+        }
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -212,8 +274,8 @@ async fn main() -> std::io::Result<()> {
                     exit(1);
                 }
             })
-            .service(web::resource("/").route(web::post().to(index)))
-            .service(web::resource("/readyz").route(web::get().to(|| async { "ready" })))
+            .service(web::resource("/").route(web::post().to(index))) // Main handler route. Send Alertmanager here.
+            .service(web::resource("/readyz").route(web::get().to(readyz))) // ready check. Point liveness and readiness checks here.
     })
     .bind(listen_addr)?
     .run()
