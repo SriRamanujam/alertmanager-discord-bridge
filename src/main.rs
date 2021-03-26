@@ -268,7 +268,14 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(middleware::Logger::default())
             .data(match std::env::var("DISCORD_WEBHOOK") {
-                Ok(webhook) => webhook,
+                Ok(webhook) => {
+                    if webhook.len() > 0 {
+                        webhook
+                    } else {
+                        log::error!("Must set DISCORD_WEBHOOK environment variable");
+                        exit(1);
+                    }
+                },
                 Err(_) => {
                     log::error!("Must set DISCORD_WEBHOOK environment variable");
                     exit(1);
