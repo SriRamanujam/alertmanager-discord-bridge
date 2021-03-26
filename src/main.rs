@@ -64,7 +64,7 @@ struct DiscordEmbedField {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ReadyzQueryParams {
-    verbose: Option<String>
+    verbose: Option<String>,
 }
 
 async fn index(
@@ -118,7 +118,7 @@ async fn index(
                                     .annotations
                                     .get("message")
                                     .cloned()
-                                    .unwrap_or_else(|| String::new())
+                                    .unwrap_or_else(String::new)
                             });
 
                         DiscordEmbedField { name, value }
@@ -168,10 +168,8 @@ async fn index(
             embeds,
         };
 
-        if discord.embeds.len() < 1 {
-            log::debug!(
-                "No alerts to send, skipping!"
-            );
+        if discord.embeds.is_empty() {
+            log::debug!("No alerts to send, skipping!");
             return Ok(HttpResponse::Ok().finish());
         }
 
@@ -202,7 +200,10 @@ async fn index(
 }
 
 /// Tests all necessary upstream components to make sure that the service is ready to accept messages.
-async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>) -> Result<HttpResponse, Error> {
+async fn readyz(
+    query: web::Query<ReadyzQueryParams>,
+    webhook: web::Data<String>,
+) -> Result<HttpResponse, Error> {
     let mut component_statuses = HashMap::new();
 
     // test connectivity to Discord.
@@ -217,15 +218,15 @@ async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>
                 } else {
                     match res.text().await {
                         Ok(s) => log::warn!("Error talking to Discord: {}", s),
-                        Err(_) => log::warn!("Error talking to Discord")
+                        Err(_) => log::warn!("Error talking to Discord"),
                     };
                     false
                 }
-            },
+            }
             Err(e) => {
                 log::warn!("Discord not reachable: {}", e);
                 false
-            },
+            }
         }
     };
     component_statuses.insert("Discord", discord_success);
@@ -235,11 +236,13 @@ async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>
         // generate verbose response and respond with 200 or 503
         let mut res_string = String::new();
 
-        let overall_success = component_statuses.iter().fold(true, |success, (component, up)| {
-            let s = if *up { "[+]" } else { "[-]" };
-            res_string.push_str(&format!("{} {}\n", s, component));
-            success & *up
-        });
+        let overall_success = component_statuses
+            .iter()
+            .fold(true, |success, (component, up)| {
+                let s = if *up { "[+]" } else { "[-]" };
+                res_string.push_str(&format!("{} {}\n", s, component));
+                success & *up
+            });
 
         if overall_success {
             Ok(HttpResponse::Ok().body(res_string))
@@ -248,7 +251,9 @@ async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>
         }
     } else {
         // generate 204 or 503
-        let overall_success = component_statuses.values().fold(true, |success, up| success & *up);
+        let overall_success = component_statuses
+            .values()
+            .fold(true, |success, up| success & *up);
 
         if overall_success {
             Ok(HttpResponse::NoContent().finish())
@@ -262,20 +267,21 @@ async fn readyz(query: web::Query<ReadyzQueryParams>, webhook: web::Data<String>
 async fn main() -> std::io::Result<()> {
     env_logger::init();
 
-    let listen_addr = std::env::var("LISTEN_ADDRESS").unwrap_or_else(|_| format!("127.0.0.1:9094"));
+    let listen_addr =
+        std::env::var("LISTEN_ADDRESS").unwrap_or_else(|_| "127.0.0.1:9094".to_string());
 
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
             .data(match std::env::var("DISCORD_WEBHOOK") {
                 Ok(webhook) => {
-                    if webhook.len() > 0 {
+                    if !webhook.is_empty() {
                         webhook
                     } else {
                         log::error!("Must set DISCORD_WEBHOOK environment variable");
                         exit(1);
                     }
-                },
+                }
                 Err(_) => {
                     log::error!("Must set DISCORD_WEBHOOK environment variable");
                     exit(1);
