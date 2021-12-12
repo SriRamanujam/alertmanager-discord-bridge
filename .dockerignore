@@ -1,5 +1,3 @@
-/target
 /systemd
-COPYING
 .gitignore
 /.github
