@@ -137,7 +137,7 @@ async fn index(
                                     .annotations
                                     .get("message")
                                     .cloned()
-                                    .unwrap_or_else(String::new)
+                                    .unwrap_or_default()
                             });
 
                         DiscordEmbedField { name, value }
