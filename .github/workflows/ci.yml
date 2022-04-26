@@ -38,9 +38,6 @@ jobs:
       -
         name: Set lowercase repository in environment
         run: echo "REPOSITORY_LOWERCASE=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-      - 
-        name: Debugging in prod
-        run: ls -alh target/${{ matrix.target }}/release
       -
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1

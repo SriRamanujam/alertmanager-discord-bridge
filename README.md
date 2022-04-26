@@ -19,3 +19,5 @@ You can of course build the project manually. It's Rust, so you'll need the Rust
 ```sh
 cargo build
 ```
+
+MSRV: 1.54
