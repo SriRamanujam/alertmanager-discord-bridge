@@ -21,7 +21,7 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 
 use actix_web::{
     error, middleware,
-    web::{self, Json},
+    web::{self, Data, Json},
     App, Error, HttpResponse, HttpServer,
 };
 use serde::{Deserialize, Serialize};
@@ -292,7 +292,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
-            .data(match std::env::var("DISCORD_WEBHOOK") {
+            .app_data(Data::new(match std::env::var("DISCORD_WEBHOOK") {
                 Ok(webhook) => {
                     if !webhook.is_empty() {
                         webhook
@@ -305,7 +305,7 @@ async fn main() -> std::io::Result<()> {
                     log::error!("Must set DISCORD_WEBHOOK environment variable");
                     exit(1);
                 }
-            })
+            }))
             .service(web::resource("/").route(web::post().to(index))) // Main handler route. Send Alertmanager here.
             .service(web::resource("/readyz").route(web::get().to(readyz))) // ready check. Point liveness and readiness checks here.
     })
