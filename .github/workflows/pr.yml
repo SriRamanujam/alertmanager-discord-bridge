@@ -36,7 +36,7 @@ jobs:
   check:
     strategy:
       matrix:
-        rust_version: ["stable", "nightly", "1.51"]
+        rust_version: ["stable", "nightly", "1.54"]
     runs-on: ubuntu-latest
     steps:
       -
