@@ -90,7 +90,6 @@ async fn index(
     item: Json<AlertManager>,
     webhook: web::Data<String>,
 ) -> Result<HttpResponse, Error> {
-
     log::debug!("Incoming payload: {:?}", &item);
 
     // run through the incoming alerts and group them by status and severity
