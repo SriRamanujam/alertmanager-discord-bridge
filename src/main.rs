@@ -261,7 +261,9 @@ async fn readyz(
             .iter()
             .fold(true, |success, (component, up)| {
                 let s = if *up { "[+]" } else { "[-]" };
-                res_string.push_str(&format!("{} {}\n", s, component));
+                res_string.push_str(s);
+                res_string.push_str(component);
+                res_string.push('\n');
                 success & *up
             });
 
