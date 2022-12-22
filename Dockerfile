@@ -3,7 +3,7 @@
 # to get away with a normal `cargo build --release`.
 
 # Matches the version of Ubuntu used by the Actions runners.
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 # This stuff almost never updates
 ARG TARGET_TRIPLE
