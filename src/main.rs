@@ -184,7 +184,7 @@ async fn index(
                 "firing" => "🚨 Your infrastructure would like to inform you about some stuff! 🚨"
                     .to_string(),
                 "resolved" => "🎉 These issues have been resolved! 🎉".to_string(),
-                _ => format!("Unknown status {}, please advise!", status),
+                _ => format!("Unknown status {status}, please advise!"),
             },
             embeds,
         };
