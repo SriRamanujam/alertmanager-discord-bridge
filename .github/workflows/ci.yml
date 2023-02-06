@@ -51,7 +51,7 @@ jobs:
       -
         name: Create and push Docker image
         id: docker_build
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           push: true
           no-cache: true
