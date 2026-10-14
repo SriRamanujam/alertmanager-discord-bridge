@@ -20,10 +20,10 @@ with this program; if not, write to the Free Software Foundation, Inc.,
 #![allow(non_snake_case)]
 
 use actix_web::{
-    error, middleware,
+    App, Error, HttpResponse, HttpServer, error, middleware,
     web::{self, Data, Json},
-    App, Error, HttpResponse, HttpServer,
 };
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, process::exit};
 
@@ -32,6 +32,12 @@ const COLOR_RED: i32 = 15145498;
 const COLOR_YELLOW: i32 = 15646767;
 const COLOR_BLUE: i32 = 7782616;
 const COLOR_GREEN: i32 = 5793266;
+
+// Discord hard limits
+const MAX_EMBED_FIELDS: usize = 25;
+const MAX_EMBEDS_PER_MESSAGE: usize = 10;
+const MAX_FIELD_NAME: usize = 256;
+const MAX_FIELD_VALUE: usize = 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AlertManager {
@@ -70,13 +76,13 @@ struct DiscordEmbed {
     author: Author,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Author {
     name: String,
     url: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct DiscordEmbedField {
     name: String,
     value: String,
@@ -85,6 +91,73 @@ struct DiscordEmbedField {
 #[derive(Debug, Serialize, Deserialize)]
 struct ReadyzQueryParams {
     verbose: Option<String>,
+}
+
+/// Deterministic field order so the same alert set renders identically every send.
+fn sort_alerts<'a>(alerts: &[&'a AlertManagerAlert]) -> Vec<&'a AlertManagerAlert> {
+    let mut sorted = alerts.to_vec();
+    sorted.sort_by(|a, b| {
+        let name_a = a.labels.get("alertname").cloned().unwrap_or_default();
+        let name_b = b.labels.get("alertname").cloned().unwrap_or_default();
+        let inst_a = ["instance", "namespace", "pod", "job"]
+            .iter()
+            .find_map(|k| a.labels.get(*k).cloned())
+            .unwrap_or_default();
+        let inst_b = ["instance", "namespace", "pod", "job"]
+            .iter()
+            .find_map(|k| b.labels.get(*k).cloned())
+            .unwrap_or_default();
+        (name_a, inst_a).cmp(&(name_b, inst_b))
+    });
+    sorted
+}
+
+/// Split fields into Discord-sized embeds (25 fields max each).
+fn chunk_fields(fields: Vec<DiscordEmbedField>) -> Vec<Vec<DiscordEmbedField>> {
+    fields
+        .chunks(MAX_EMBED_FIELDS)
+        .map(|c| c.to_vec())
+        .collect()
+}
+
+/// Discord hard-caps field names and values; past that the whole POST fails.
+fn truncate_field(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+/// Display priority: critical, warning, info, then the rest alphabetically.
+fn severity_rank(severity: &str) -> u8 {
+    match severity {
+        "critical" => 0,
+        "warning" => 1,
+        "info" => 2,
+        _ => 3,
+    }
+}
+
+/// Render startsAt for a human scrolling the channel; raw string if unparseable.
+fn format_start_time(starts_at: &str) -> String {
+    match DateTime::parse_from_rfc3339(starts_at) {
+        Ok(t) => {
+            let t = t.with_timezone(&Utc);
+            let age = humanize(Utc::now().signed_duration_since(t));
+            format!("🕒 fired {} ({age} ago)", t.format("%Y-%m-%d %H:%M UTC"))
+        }
+        Err(_) => format!("🕒 started {starts_at}"),
+    }
+}
+
+fn humanize(d: Duration) -> String {
+    let s = d.num_seconds().unsigned_abs();
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3600 {
+        format!("{}m", s / 60)
+    } else if s < 86400 {
+        format!("{}h", s / 3600)
+    } else {
+        format!("{}d", s / 86400)
+    }
 }
 
 async fn index(
@@ -118,47 +191,75 @@ async fn index(
     // in general, the difference between a firing alert and a resolved alert is minor, just a couple of small text differences.
     // So we can handle them in a for loop.
     for (status, alerts_by_severity) in grouped_alerts {
-        let embeds = alerts_by_severity
+        let content = match status {
+            "firing" => {
+                "🚨 Your infrastructure would like to inform you about some stuff! 🚨".to_string()
+            }
+            "resolved" => "🎉 These issues have been resolved! 🎉".to_string(),
+            _ => format!("Unknown status {status}, please advise!"),
+        };
+
+        let author = Author {
+            name: item
+                .commonLabels
+                .get("prometheus")
+                .cloned()
+                .unwrap_or_default(),
+            url: item.externalURL.clone().replace("///", "//"),
+        };
+
+        // deterministic severity order: critical, warning, info, then the rest
+        let mut severities: Vec<(String, Vec<&AlertManagerAlert>)> = alerts_by_severity
             .into_iter()
-            .map(|(severity, alerts)| {
-                // we are going to turn alerts into DiscordEmbedFields and then make a DiscordEmbed out of the alerts.
+            .map(|(severity, alerts)| (severity.to_string(), alerts))
+            .collect();
+        severities.sort_by(|a, b| {
+            severity_rank(&a.0)
+                .cmp(&severity_rank(&b.0))
+                .then_with(|| a.0.cmp(&b.0))
+        });
 
-                let fields = alerts
-                    .iter()
-                    .map(|alert| {
-                        let name = alert
-                            .labels
-                            .get("alertname")
-                            .cloned()
-                            .unwrap_or_else(|| "No-name alert".to_string());
-                        let value = alert
-                            .annotations
-                            .get("description")
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                alert
-                                    .annotations
-                                    .get("message")
-                                    .cloned()
-                                    .unwrap_or_default()
-                            });
-
-                        DiscordEmbedField { name, value }
-                    })
-                    .collect::<Vec<DiscordEmbedField>>();
-
-                let author = Author {
-                    name: item
-                        .commonLabels
-                        .get("prometheus")
+        // one embed per 25-field chunk, up to 10 embeds per message
+        let mut messages: Vec<Vec<DiscordEmbed>> = Vec::new();
+        for (severity, alerts) in severities {
+            let fields = sort_alerts(&alerts)
+                .iter()
+                .map(|alert| {
+                    let alertname = alert
+                        .labels
+                        .get("alertname")
                         .cloned()
-                        .unwrap_or_default(),
-                    url: item.externalURL.clone().replace("///", "//"),
-                };
+                        .unwrap_or_else(|| "No-name alert".to_string());
+                    let name = if alert.generatorURL.is_empty() {
+                        alertname
+                    } else {
+                        // link each alert straight to its generator query
+                        format!("[{alertname}]({})", alert.generatorURL)
+                    };
+                    let body = alert
+                        .annotations
+                        .get("description")
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            alert
+                                .annotations
+                                .get("message")
+                                .cloned()
+                                .unwrap_or_default()
+                        });
+                    let value = format!("{body}\n{}", format_start_time(&alert.startsAt));
 
-                DiscordEmbed {
+                    DiscordEmbedField {
+                        name: truncate_field(&name, MAX_FIELD_NAME),
+                        value: truncate_field(&value, MAX_FIELD_VALUE),
+                    }
+                })
+                .collect::<Vec<DiscordEmbedField>>();
+
+            for chunk in chunk_fields(fields) {
+                let embed = DiscordEmbed {
                     title: severity.to_uppercase(),
-                    description: match severity {
+                    description: match severity.as_str() {
                         "critical" => {
                             "You should take a look at these, like, right now.".to_string()
                         }
@@ -168,49 +269,62 @@ async fn index(
                         }
                         _ => "Unknown severity. Take a look at these".to_string(),
                     },
-                    color: match severity {
-                        "critical" => COLOR_RED,
-                        "warning" => COLOR_YELLOW,
-                        "info" => COLOR_BLUE,
-                        _ => COLOR_GRAY,
+                    color: if status == "resolved" {
+                        COLOR_GREEN
+                    } else {
+                        match severity.as_str() {
+                            "critical" => COLOR_RED,
+                            "warning" => COLOR_YELLOW,
+                            "info" => COLOR_BLUE,
+                            _ => COLOR_GRAY,
+                        }
                     },
-                    fields,
-                    author,
+                    fields: chunk,
+                    author: author.clone(),
+                };
+                if messages
+                    .last()
+                    .map_or(true, |m| m.len() >= MAX_EMBEDS_PER_MESSAGE)
+                {
+                    messages.push(Vec::new());
                 }
-            })
-            .collect::<Vec<_>>();
+                messages.last_mut().unwrap().push(embed);
+            }
+        }
 
-        let discord = Discord {
-            content: match status {
-                "firing" => "🚨 Your infrastructure would like to inform you about some stuff! 🚨"
-                    .to_string(),
-                "resolved" => "🎉 These issues have been resolved! 🎉".to_string(),
-                _ => format!("Unknown status {status}, please advise!"),
-            },
-            embeds,
-        };
-
-        if discord.embeds.is_empty() {
+        let embed_count = messages.iter().map(|m| m.len()).sum::<usize>();
+        if embed_count == 0 {
             log::debug!("No alerts to send, skipping!");
             return Ok(HttpResponse::Ok().finish());
         }
 
-        log::debug!(
-            "Sending discord payload to webhook: {:?}",
-            serde_json::to_string(&discord)
-        );
+        for (i, embeds) in messages.into_iter().enumerate() {
+            let discord = Discord {
+                content: if i == 0 {
+                    content.clone()
+                } else {
+                    String::new()
+                },
+                embeds,
+            };
 
-        match client.post(webhook.get_ref()).json(&discord).send().await {
-            Err(e) => {
-                log::error!("Could not send to Discord: {}", e);
-                return Err(error::ErrorInternalServerError("Could not send to Discord"));
-            }
-            Ok(res) => {
-                if let Err(e) = res.error_for_status() {
-                    log::error!("Discord API returned error: {}", e);
-                    return Err(error::ErrorInternalServerError(
-                        "Discord API rejected payload",
-                    ));
+            log::debug!(
+                "Sending discord payload to webhook: {:?}",
+                serde_json::to_string(&discord)
+            );
+
+            match client.post(webhook.get_ref()).json(&discord).send().await {
+                Err(e) => {
+                    log::error!("Could not send to Discord: {}", e);
+                    return Err(error::ErrorInternalServerError("Could not send to Discord"));
+                }
+                Ok(res) => {
+                    if let Err(e) = res.error_for_status() {
+                        log::error!("Discord API returned error: {}", e);
+                        return Err(error::ErrorInternalServerError(
+                            "Discord API rejected payload",
+                        ));
+                    }
                 }
             }
         }
