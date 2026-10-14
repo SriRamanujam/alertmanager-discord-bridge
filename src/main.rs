@@ -294,8 +294,9 @@ async fn index(
 
         let embed_count = messages.iter().map(|m| m.len()).sum::<usize>();
         if embed_count == 0 {
-            log::debug!("No alerts to send, skipping!");
-            return Ok(HttpResponse::Ok().finish());
+            // `continue`, not `return`: other status groups in this payload still need to be sent
+            log::debug!("No alerts to send for {status}, skipping!");
+            continue;
         }
 
         for (i, embeds) in messages.into_iter().enumerate() {
