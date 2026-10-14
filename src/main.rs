@@ -473,6 +473,15 @@ mod tests {
         assert_eq!(chunks[1].len(), 1);
     }
 
+    fn sort_key(a: &AlertManagerAlert) -> (String, String) {
+        let name = a.labels.get("alertname").cloned().unwrap_or_default();
+        let inst = ["instance", "namespace", "pod", "job"]
+            .iter()
+            .find_map(|k| a.labels.get(*k).cloned())
+            .unwrap_or_default();
+        (name, inst)
+    }
+
     #[test]
     fn sort_alerts_orders_by_name_then_instance() {
         let alerts = vec![
@@ -483,26 +492,31 @@ mod tests {
         let refs: Vec<_> = alerts.iter().collect();
         let sorted = sort_alerts(&refs);
         assert_eq!(
-            sorted
-                .iter()
-                .map(|a| alert_sort_key(a))
-                .collect::<Vec<_>>(),
+            sorted.iter().map(|a| sort_key(a)).collect::<Vec<_>>(),
             vec![
                 ("A".to_string(), "host9".to_string()),
                 ("B".to_string(), "host1".to_string()),
                 ("B".to_string(), "host2".to_string()),
             ]
         );
-        // same input, same order: the channel view is stable across sends
+        // no instance label: falls back to namespace for ordering (ns-b before ns-a flips)
+        let ns_alerts = vec![
+            {
+                let mut a = alert("X", None);
+                a.labels.insert("namespace".to_string(), "ns-b".to_string());
+                a
+            },
+            {
+                let mut a = alert("X", None);
+                a.labels.insert("namespace".to_string(), "ns-a".to_string());
+                a
+            },
+        ];
+        let refs2: Vec<&AlertManagerAlert> = ns_alerts.iter().collect();
+        let sorted2 = sort_alerts(&refs2);
         assert_eq!(
-            sort_alerts(&refs)
-                .iter()
-                .map(|a| alert_sort_key(a))
-                .collect::<Vec<_>>(),
-            sorted
-                .iter()
-                .map(|a| alert_sort_key(a))
-                .collect::<Vec<_>>()
+            sorted2.iter().map(|a| a.labels.get("namespace").cloned()).collect::<Vec<_>>(),
+            vec![Some("ns-a".to_string()), Some("ns-b".to_string())]
         );
     }
 
