@@ -31,6 +31,7 @@ const COLOR_GRAY: i32 = 9807270;
 const COLOR_RED: i32 = 15145498;
 const COLOR_YELLOW: i32 = 15646767;
 const COLOR_BLUE: i32 = 7782616;
+const COLOR_GREEN: i32 = 5793266;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AlertManager {
