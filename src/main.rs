@@ -163,6 +163,7 @@ fn humanize(d: Duration) -> String {
 async fn index(
     item: Json<AlertManager>,
     webhook: web::Data<String>,
+    client: web::Data<reqwest::Client>,
 ) -> Result<HttpResponse, Error> {
     log::debug!("Incoming payload: {:?}", item);
 
@@ -185,8 +186,6 @@ async fn index(
 
         alerts_by_severity.entry(severity).or_default().push(alert);
     }
-
-    let client = reqwest::Client::new();
 
     // in general, the difference between a firing alert and a resolved alert is minor, just a couple of small text differences.
     // So we can handle them in a for loop.
@@ -409,7 +408,7 @@ async fn main() -> std::io::Result<()> {
     let listen_addr =
         std::env::var("LISTEN_ADDRESS").unwrap_or_else(|_| "127.0.0.1:9094".to_string());
 
-    HttpServer::new(|| {
+    HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
             .app_data(Data::new(match std::env::var("DISCORD_WEBHOOK") {
@@ -426,6 +425,7 @@ async fn main() -> std::io::Result<()> {
                     exit(1);
                 }
             }))
+            .app_data(reqwest::Client::new())
             .service(web::resource("/").route(web::post().to(index))) // Main handler route. Send Alertmanager here.
             .service(web::resource("/readyz").route(web::get().to(readyz))) // ready check. Point liveness and readiness checks here.
     })
