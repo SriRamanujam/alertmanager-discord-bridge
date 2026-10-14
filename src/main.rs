@@ -433,3 +433,82 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field(i: usize) -> DiscordEmbedField {
+        DiscordEmbedField {
+            name: format!("n{i}"),
+            value: format!("v{i}"),
+        }
+    }
+
+    fn alert(name: &str, instance: Option<&str>) -> AlertManagerAlert {
+        let mut labels = HashMap::new();
+        labels.insert("alertname".to_string(), name.to_string());
+        if let Some(i) = instance {
+            labels.insert("instance".to_string(), i.to_string());
+        }
+        AlertManagerAlert {
+            status: "firing".into(),
+            labels,
+            annotations: HashMap::new(),
+            startsAt: "2021-01-01T00:00:00Z".into(),
+            endsAt: "0001-01-01T00:00:00Z".into(),
+            generatorURL: String::new(),
+        }
+    }
+
+    #[test]
+    fn chunk_fields_respects_embed_limit() {
+        let chunks = chunk_fields((0..25).map(field).collect());
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), 25);
+
+        let chunks = chunk_fields((0..26).map(field).collect());
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 25);
+        assert_eq!(chunks[1].len(), 1);
+    }
+
+    #[test]
+    fn sort_alerts_orders_by_name_then_instance() {
+        let alerts = vec![
+            alert("B", Some("host2")),
+            alert("A", Some("host9")),
+            alert("B", Some("host1")),
+        ];
+        let refs: Vec<_> = alerts.iter().collect();
+        let sorted = sort_alerts(&refs);
+        assert_eq!(
+            sorted
+                .iter()
+                .map(|a| alert_sort_key(a))
+                .collect::<Vec<_>>(),
+            vec![
+                ("A".to_string(), "host9".to_string()),
+                ("B".to_string(), "host1".to_string()),
+                ("B".to_string(), "host2".to_string()),
+            ]
+        );
+        // same input, same order: the channel view is stable across sends
+        assert_eq!(
+            sort_alerts(&refs)
+                .iter()
+                .map(|a| alert_sort_key(a))
+                .collect::<Vec<_>>(),
+            sorted
+                .iter()
+                .map(|a| alert_sort_key(a))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn format_start_time_parses_and_falls_back() {
+        assert!(format_start_time("2021-01-01T00:00:00Z").contains("2021-01-01 00:00 UTC"));
+        assert!(format_start_time("not a time").contains("not a time"));
+    }
+}
