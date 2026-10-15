@@ -31,7 +31,7 @@ const COLOR_GRAY: i32 = 9807270;
 const COLOR_RED: i32 = 15145498;
 const COLOR_YELLOW: i32 = 15646767;
 const COLOR_BLUE: i32 = 7782616;
-const COLOR_GREEN: i32 = 5793266;
+const COLOR_GREEN: i32 = 5763719;
 
 // Discord hard limits
 const MAX_EMBED_FIELDS: usize = 25;
@@ -165,7 +165,7 @@ async fn index(
     webhook: web::Data<String>,
     client: web::Data<reqwest::Client>,
 ) -> Result<HttpResponse, Error> {
-    log::debug!("Incoming payload: {:?}", item);
+    log::debug!("Incoming payload: {:?}", serde_json::to_string(&item));
 
     // run through the incoming alerts and group them by status and severity
     // HashMap<"status", HashMap<"severity", Vec<AlertManagerAlert>>>
@@ -224,17 +224,11 @@ async fn index(
             let fields = sort_alerts(&alerts)
                 .iter()
                 .map(|alert| {
-                    let alertname = alert
+                    let name = alert
                         .labels
                         .get("alertname")
                         .cloned()
                         .unwrap_or_else(|| "No-name alert".to_string());
-                    let name = if alert.generatorURL.is_empty() {
-                        alertname
-                    } else {
-                        // link each alert straight to its generator query
-                        format!("[{alertname}]({})", alert.generatorURL)
-                    };
                     let body = alert
                         .annotations
                         .get("description")
