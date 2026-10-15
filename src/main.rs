@@ -425,7 +425,7 @@ async fn main() -> std::io::Result<()> {
                     exit(1);
                 }
             }))
-            .app_data(reqwest::Client::new())
+            .app_data(Data::new(reqwest::Client::new()))
             .service(web::resource("/").route(web::post().to(index))) // Main handler route. Send Alertmanager here.
             .service(web::resource("/readyz").route(web::get().to(readyz))) // ready check. Point liveness and readiness checks here.
     })
@@ -515,7 +515,10 @@ mod tests {
         let refs2: Vec<&AlertManagerAlert> = ns_alerts.iter().collect();
         let sorted2 = sort_alerts(&refs2);
         assert_eq!(
-            sorted2.iter().map(|a| a.labels.get("namespace").cloned()).collect::<Vec<_>>(),
+            sorted2
+                .iter()
+                .map(|a| a.labels.get("namespace").cloned())
+                .collect::<Vec<_>>(),
             vec![Some("ns-a".to_string()), Some("ns-b".to_string())]
         );
     }
